@@ -4,14 +4,16 @@ Smol WiFi Manager - A Wayland-native application to scan and display WiFi networ
 without requiring root privileges.
 """
 
+import threading
+import time
+import traceback
+
 import gi
 gi.require_version('Gtk', '4.0')
 gi.require_version('Adw', '1')
 gi.require_version('NM', '1.0')
 
-from gi.repository import Gtk, Adw, GLib, NM, Gio, Gdk
-import threading
-import time
+from gi.repository import Gtk, Adw, GLib, NM, Gdk
 
 
 class SmolWifiManagerWindow(Adw.ApplicationWindow):
@@ -19,29 +21,29 @@ class SmolWifiManagerWindow(Adw.ApplicationWindow):
         super().__init__(application=app, title="Smol WiFi Manager")
         self.set_default_size(600, 500)
         self.set_size_request(530, 800)  # Minimum width: 530, Minimum height: 800
-        
+
         # NetworkManager client
         self.client = NM.Client.new(None)
-        
+
         # Connect to realize signal to remove decorations and apply CSS after window is realized
         self.connect("realize", self._on_window_realize)
-        
+
         # Try to set window as undecorated before showing
         self.set_decorated(False)
-        
+
         # Main box
         main_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         self.set_content(main_box)
-        
+
         # Header bar
         header = Adw.HeaderBar()
         main_box.append(header)
-        
+
         # Refresh button
         self.refresh_btn = Gtk.Button(icon_name="view-refresh-symbolic")
         self.refresh_btn.connect("clicked", self.on_refresh_clicked)
         header.pack_start(self.refresh_btn)
-        
+
         # Status label
         self.status_label = Gtk.Label(label="Ready to scan...")
         self.status_label.add_css_class("subtitle")
@@ -50,18 +52,18 @@ class SmolWifiManagerWindow(Adw.ApplicationWindow):
         self.status_label.set_margin_start(12)
         self.status_label.set_margin_end(12)
         main_box.append(self.status_label)
-        
+
         # Scrolled window for network list
         scrolled = Gtk.ScrolledWindow()
         scrolled.set_vexpand(True)
         main_box.append(scrolled)
-        
+
         # List box for networks
         self.list_box = Gtk.ListBox()
         self.list_box.set_selection_mode(Gtk.SelectionMode.NONE)
         self.list_box.add_css_class("boxed-list")
         scrolled.set_child(self.list_box)
-        
+
         # Add custom CSS for connected network styling
         # We'll add this after the window is realized
         self.css_provider = Gtk.CssProvider()
@@ -71,16 +73,16 @@ class SmolWifiManagerWindow(Adw.ApplicationWindow):
         }
         """
         self.css_provider.load_from_data(css.encode('utf-8'))
-        
+
         # Track networks by BSSID for efficient updates
         self.network_rows = {}  # Maps BSSID -> (row, access_point, icon_widget, details_box)
-        
+
         # Track currently expanded row for accordion behavior
         self.currently_expanded_row = None
-        
+
         # Store WiFi device for connection operations
         self.wifi_device = None
-        
+
         # Initial scan after window is shown
         GLib.idle_add(lambda: self.scan_networks(is_manual=True))
 
@@ -98,7 +100,7 @@ class SmolWifiManagerWindow(Adw.ApplicationWindow):
                 if surface:
                     # Try to set as override-redirect or similar
                     pass
-        
+
         # Apply CSS provider after window is realized
         try:
             display = Gdk.Display.get_default()
@@ -112,28 +114,27 @@ class SmolWifiManagerWindow(Adw.ApplicationWindow):
             print(f"Error applying CSS: {e}")
         # Also try on the window itself
         self.set_decorated(False)
-        
+
         # Force update
         self.queue_draw()
-    
+
     def on_refresh_clicked(self, button):
         """Handle refresh button click"""
         self.scan_networks(is_manual=True)
-    
 
     def scan_networks(self, is_manual=False):
         """Scan for WiFi networks"""
         # If already scanning, skip (unless manual refresh)
         if not self.refresh_btn.get_sensitive() and not is_manual:
             return
-        
+
         # Only disable button if not already disabled
         # This prevents issues during resize or other events
         if self.refresh_btn.get_sensitive():
             self.refresh_btn.set_sensitive(False)
         if is_manual:
             self.status_label.set_text("Scanning for networks...")
-        
+
         # Clear the list for manual refresh to show immediate update
         if is_manual:
             # Clear existing list
@@ -143,7 +144,7 @@ class SmolWifiManagerWindow(Adw.ApplicationWindow):
                 self.list_box.remove(child)
                 child = next_child
             self.network_rows.clear()
-        
+
         # Run scan in a separate thread to avoid blocking UI
         thread = threading.Thread(target=self._scan_thread)
         thread.daemon = True
@@ -155,41 +156,41 @@ class SmolWifiManagerWindow(Adw.ApplicationWindow):
             # Get all devices
             devices = self.client.get_devices()
             wifi_device = None
-            
+
             # Find WiFi device
             for device in devices:
                 if device.get_device_type() == NM.DeviceType.WIFI:
                     wifi_device = device
                     break
-            
+
             if not wifi_device:
                 GLib.idle_add(self._update_status, "No WiFi device found")
                 GLib.idle_add(self._enable_refresh)
                 return
-            
+
             # Store WiFi device for connection operations
             self.wifi_device = wifi_device
-            
+
             # Request a scan (trigger scan, it may already be in progress)
             try:
                 wifi_device.request_scan_async(None, None, None)
-            except:
+            except Exception:
                 pass  # Scan might already be in progress, that's okay
-            
+
             # Wait for scan to complete with retries
             # NetworkManager scans are typically fast, but we'll wait up to 5 seconds
             max_wait = 5
             wait_time = 0.5
             iterations = int(max_wait / wait_time)
             initial_count = len(wifi_device.get_access_points())
-            
+
             # Wait a bit for scan to start
             time.sleep(1.0)
-            
+
             for i in range(iterations):
                 time.sleep(wait_time)
                 access_points = wifi_device.get_access_points()
-                
+
                 # If we have access points, process them
                 # Wait at least 1 second after requesting scan
                 if access_points and len(access_points) > 0:
@@ -204,29 +205,32 @@ class SmolWifiManagerWindow(Adw.ApplicationWindow):
                             active_bssid = str(active_bssid_raw)
                     else:
                         active_bssid = None
-                    
+
                     # Sort by signal strength (descending)
-                    sorted_aps = sorted(access_points, key=lambda ap: ap.get_strength(), reverse=True)
-                    
+                    sorted_aps = sorted(
+                        access_points,
+                        key=lambda ap: ap.get_strength(),
+                        reverse=True
+                    )
+
                     # Update UI in main thread
                     GLib.idle_add(self._populate_networks, sorted_aps, active_bssid)
                     return
-            
+
             # Final attempt: get access points even if scan didn't complete
             access_points = wifi_device.get_access_points()
             if access_points and len(access_points) > 0:
                 # Get active access point
                 active_ap = wifi_device.get_active_access_point()
                 active_bssid = active_ap.get_bssid() if active_ap else None
-                
+
                 sorted_aps = sorted(access_points, key=lambda ap: ap.get_strength(), reverse=True)
                 GLib.idle_add(self._populate_networks, sorted_aps, active_bssid)
             else:
                 GLib.idle_add(self._update_status, "No networks found")
                 GLib.idle_add(self._enable_refresh)
-            
+
         except Exception as e:
-            import traceback
             error_msg = f"Error: {str(e)}"
             print(f"Scan error: {error_msg}")
             print(traceback.format_exc())
@@ -237,13 +241,13 @@ class SmolWifiManagerWindow(Adw.ApplicationWindow):
         """Update the list with network information without clearing it"""
         # Always re-enable refresh button when populating
         self.refresh_btn.set_sensitive(True)
-        
+
         if not access_points:
             # If we have existing networks, keep them. Only show "No networks" if list is empty
             if len(self.network_rows) == 0:
                 self.status_label.set_text("No networks found")
             return
-        
+
         # Create a set of current BSSIDs (normalized to strings)
         current_bssids = set()
         for ap in access_points:
@@ -253,21 +257,21 @@ class SmolWifiManagerWindow(Adw.ApplicationWindow):
             else:
                 bssid_str = str(bssid_raw)
             current_bssids.add(bssid_str)
-        
+
         # Remove networks that are no longer available
         bssids_to_remove = []
         for bssid in self.network_rows:
             if bssid not in current_bssids:
                 bssids_to_remove.append(bssid)
-        
+
         for bssid in bssids_to_remove:
             row, _, icon, _ = self.network_rows[bssid]
             self.list_box.remove(row)
             del self.network_rows[bssid]
-        
+
         # Sort access points by signal strength
         sorted_aps = sorted(access_points, key=lambda ap: ap.get_strength(), reverse=True)
-        
+
         # Update or add networks in sorted order
         for ap in sorted_aps:
             bssid_raw = ap.get_bssid()
@@ -277,7 +281,7 @@ class SmolWifiManagerWindow(Adw.ApplicationWindow):
             else:
                 bssid = str(bssid_raw)
             is_active = active_bssid and bssid == active_bssid
-            
+
             if bssid in self.network_rows:
                 # Update existing row
                 row, old_ap, old_icon, details_box = self.network_rows[bssid]
@@ -306,13 +310,13 @@ class SmolWifiManagerWindow(Adw.ApplicationWindow):
                 self.network_rows[bssid] = (row, ap, icon, details_box)
                 # Insert at the end for now, will be sorted below
                 self.list_box.append(row)
-        
+
         # Re-sort the list by signal strength (simple approach)
         self._resort_list_simple(sorted_aps)
-        
+
         self.status_label.set_text(f"Found {len(access_points)} networks")
         # Refresh button is already enabled in _populate_networks
-    
+
     def _resort_list_simple(self, sorted_access_points):
         """Re-sort the list by signal strength - only resort if order changed significantly"""
         # Build list of rows in correct order
@@ -322,14 +326,14 @@ class SmolWifiManagerWindow(Adw.ApplicationWindow):
             if bssid in self.network_rows:
                 row, _, _, _ = self.network_rows[bssid]
                 ordered_rows.append(row)
-        
+
         # Get current order
         current_rows = []
         child = self.list_box.get_first_child()
         while child:
             current_rows.append(child)
             child = child.get_next_sibling()
-        
+
         # Check if reordering is needed
         needs_reorder = False
         if len(ordered_rows) != len(current_rows):
@@ -339,10 +343,10 @@ class SmolWifiManagerWindow(Adw.ApplicationWindow):
                 if current_rows[i] != row:
                     needs_reorder = True
                     break
-        
+
         if not needs_reorder:
             return
-        
+
         # Reorder by moving items in place (less flicker than remove/re-add)
         # Use a more efficient approach: move items one by one to correct position
         for i, target_row in enumerate(ordered_rows):
@@ -351,7 +355,7 @@ class SmolWifiManagerWindow(Adw.ApplicationWindow):
                 if row == target_row:
                     current_index = j
                     break
-            
+
             if current_index != i and current_index >= 0:
                 # Find reference row (row before target position)
                 if i > 0:
@@ -385,7 +389,7 @@ class SmolWifiManagerWindow(Adw.ApplicationWindow):
         row.connect("notify::expanded", self._on_row_expanded, row)
         # Store details_box will be handled by caller
         return row
-    
+
     def _on_row_expanded(self, row, param, user_data):
         """Handle row expansion - collapse other rows for accordion behavior"""
         if row.get_expanded():
@@ -397,7 +401,7 @@ class SmolWifiManagerWindow(Adw.ApplicationWindow):
             # If this row is being collapsed, clear the reference
             if self.currently_expanded_row == row:
                 self.currently_expanded_row = None
-    
+
     def _create_signal_icon(self, strength):
         """Create a signal strength icon"""
         if strength >= 75:
@@ -408,11 +412,11 @@ class SmolWifiManagerWindow(Adw.ApplicationWindow):
             icon_name = "network-wireless-signal-ok-symbolic"
         else:
             icon_name = "network-wireless-signal-weak-symbolic"
-        
+
         icon = Gtk.Image.new_from_icon_name(icon_name)
         icon.set_pixel_size(24)
         return icon
-    
+
     def _update_network_row(self, row, access_point, is_active=False, old_icon=None):
         """Update an existing row with new network information"""
         # SSID
@@ -421,7 +425,7 @@ class SmolWifiManagerWindow(Adw.ApplicationWindow):
             ssid_str = NM.utils_ssid_to_utf8(ssid.get_data())
         else:
             ssid_str = "Hidden Network"
-        
+
         # Add "Connected" indicator if this is the active network
         if is_active:
             # Create title with "Connected" suffix
@@ -435,38 +439,38 @@ class SmolWifiManagerWindow(Adw.ApplicationWindow):
             # Remove connected-network class if it was active before
             if "connected-network" in [cls for cls in row.get_css_classes()]:
                 row.remove_css_class("connected-network")
-        
+
         # Signal strength
         strength = access_point.get_strength()
         strength_str = f"{strength}%"
-        
+
         # Security info
         flags = access_point.get_wpa_flags() | access_point.get_rsn_flags()
         security = []
         # Use getattr because attribute name starts with a number
-        ApSecurityFlags = getattr(NM, '80211ApSecurityFlags')
-        if flags & ApSecurityFlags.PAIR_WEP40:
+        ap_security_flags = getattr(NM, '80211ApSecurityFlags')
+        if flags & ap_security_flags.PAIR_WEP40:
             security.append("WEP")
-        if flags & (ApSecurityFlags.PAIR_CCMP | ApSecurityFlags.GROUP_CCMP):
+        if flags & (ap_security_flags.PAIR_CCMP | ap_security_flags.GROUP_CCMP):
             security.append("WPA2")
-        if flags & (ApSecurityFlags.PAIR_TKIP | ApSecurityFlags.GROUP_TKIP):
+        if flags & (ap_security_flags.PAIR_TKIP | ap_security_flags.GROUP_TKIP):
             security.append("WPA")
-        if flags & ApSecurityFlags.KEY_MGMT_PSK:
+        if flags & ap_security_flags.KEY_MGMT_PSK:
             security.append("PSK")
-        
+
         security_str = ", ".join(security) if security else "Open"
-        
+
         # Frequency
         freq = access_point.get_frequency()
         freq_mhz = f"{freq / 1000:.0f} MHz" if freq > 0 else "N/A"
-        
+
         # Subtitle with details
         subtitle = f"{strength_str} • {freq_mhz} • {security_str}"
         row.set_subtitle(subtitle)
-        
+
         # Update signal strength icon
         new_icon = self._create_signal_icon(strength)
-        
+
         # Remove old icon if it exists
         # Note: Adw.ExpanderRow doesn't have remove_suffix, so we use the parent container
         if old_icon:
@@ -474,12 +478,12 @@ class SmolWifiManagerWindow(Adw.ApplicationWindow):
             if parent:
                 # Remove from parent container
                 parent.remove(old_icon)
-        
+
         # Add new icon
         row.add_suffix(new_icon)
-        
+
         return new_icon
-    
+
     def _setup_expander_content(self, row, access_point, is_active):
         """Set up the expandable content for a network row"""
         # Create details box
@@ -517,24 +521,26 @@ class SmolWifiManagerWindow(Adw.ApplicationWindow):
         mode = access_point.get_mode()
         mode_str = str(mode).split('.')[-1] if mode else "Unknown"
         self._add_detail_row(details_grid, "Mode:", mode_str, 2)
-        
+
         # Max Bitrate
         bitrate = access_point.get_max_bitrate()
         if bitrate > 0:
             bitrate_str = f"{bitrate / 1000:.0f} Mbps"
             self._add_detail_row(details_grid, "Max Bitrate:", bitrate_str, 3)
-        
+
         details_box.append(details_grid)
-        
+
         # Separator
         separator = Gtk.Separator()
         details_box.append(separator)
-        
+
         # Check if network requires password and has no saved connection
         flags = access_point.get_wpa_flags() | access_point.get_rsn_flags()
-        ApSecurityFlags = getattr(NM, '80211ApSecurityFlags')
-        requires_password = bool(flags & (ApSecurityFlags.KEY_MGMT_PSK | ApSecurityFlags.KEY_MGMT_802_1X))
-        
+        ap_security_flags = getattr(NM, '80211ApSecurityFlags')
+        requires_password = bool(
+            flags & (ap_security_flags.KEY_MGMT_PSK | ap_security_flags.KEY_MGMT_802_1X)
+        )
+
         # Check if there's an existing saved connection
         has_saved_connection = False
         if requires_password:
@@ -552,14 +558,14 @@ class SmolWifiManagerWindow(Adw.ApplicationWindow):
                                 if existing_ssid_str == ssid_str:
                                     has_saved_connection = True
                                     break
-                    except:
+                    except Exception:
                         continue
-        
+
         # Connect/Disconnect button box
         button_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
         button_box.set_halign(Gtk.Align.FILL)
         button_box.set_margin_top(6)
-        
+
         if is_active:
             disconnect_btn = Gtk.Button(label="Disconnect")
             disconnect_btn.add_css_class("destructive-action")
@@ -573,21 +579,21 @@ class SmolWifiManagerWindow(Adw.ApplicationWindow):
                 password_entry.set_hexpand(True)
                 # Store password entry in button_box for later retrieval
                 button_box.append(password_entry)
-                
+
                 # Connect button
                 connect_btn = Gtk.Button(label="Connect")
                 connect_btn.add_css_class("suggested-action")
                 connect_btn.set_sensitive(False)  # Disabled until password is entered
                 connect_btn.connect("clicked", self._on_connect_clicked, access_point, password_entry)
                 button_box.append(connect_btn)
-                
+
                 # Enable/disable button based on password length
                 def on_password_changed(entry):
                     password = entry.get_text()
                     # Minimum 8 characters for WPA/WPA2
                     min_length = 8
                     connect_btn.set_sensitive(len(password) >= min_length)
-                
+
                 password_entry.connect("changed", on_password_changed)
             else:
                 # No password needed or has saved connection
@@ -595,35 +601,37 @@ class SmolWifiManagerWindow(Adw.ApplicationWindow):
                 connect_btn.add_css_class("suggested-action")
                 connect_btn.connect("clicked", self._on_connect_clicked, access_point, None)
                 button_box.append(connect_btn)
-        
+
         details_box.append(button_box)
-        
+
         row.add_row(details_box)
         return details_box
-    
+
     def _update_expander_content(self, details_box, access_point, is_active):
         """Update the expander content when network status changes"""
         if not details_box:
             return
-        
+
         # Find the button box (last child)
         children = []
         child = details_box.get_first_child()
         while child:
             children.append(child)
             child = child.get_next_sibling()
-        
+
         # Remove old button box if exists (should be last)
         if len(children) > 1:
             old_button_box = children[-1]
             if isinstance(old_button_box, Gtk.Box):
                 details_box.remove(old_button_box)
-        
+
         # Check if network requires password and has no saved connection
         flags = access_point.get_wpa_flags() | access_point.get_rsn_flags()
-        ApSecurityFlags = getattr(NM, '80211ApSecurityFlags')
-        requires_password = bool(flags & (ApSecurityFlags.KEY_MGMT_PSK | ApSecurityFlags.KEY_MGMT_802_1X))
-        
+        ap_security_flags = getattr(NM, '80211ApSecurityFlags')
+        requires_password = bool(
+            flags & (ap_security_flags.KEY_MGMT_PSK | ap_security_flags.KEY_MGMT_802_1X)
+        )
+
         # Check if there's an existing saved connection
         has_saved_connection = False
         if requires_password:
@@ -641,14 +649,14 @@ class SmolWifiManagerWindow(Adw.ApplicationWindow):
                                 if existing_ssid_str == ssid_str:
                                     has_saved_connection = True
                                     break
-                    except:
+                    except Exception:
                         continue
         
         # Add new button box
         button_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
         button_box.set_halign(Gtk.Align.FILL)
         button_box.set_margin_top(6)
-        
+
         if is_active:
             disconnect_btn = Gtk.Button(label="Disconnect")
             disconnect_btn.add_css_class("destructive-action")
@@ -661,21 +669,21 @@ class SmolWifiManagerWindow(Adw.ApplicationWindow):
                 password_entry = Gtk.PasswordEntry()
                 password_entry.set_hexpand(True)
                 button_box.append(password_entry)
-                
+
                 # Connect button
                 connect_btn = Gtk.Button(label="Connect")
                 connect_btn.add_css_class("suggested-action")
                 connect_btn.set_sensitive(False)  # Disabled until password is entered
                 connect_btn.connect("clicked", self._on_connect_clicked, access_point, password_entry)
                 button_box.append(connect_btn)
-                
+
                 # Enable/disable button based on password length
                 def on_password_changed(entry):
                     password = entry.get_text()
                     # Minimum 8 characters for WPA/WPA2
                     min_length = 8
                     connect_btn.set_sensitive(len(password) >= min_length)
-                
+
                 password_entry.connect("changed", on_password_changed)
             else:
                 # No password needed or has saved connection
@@ -683,22 +691,22 @@ class SmolWifiManagerWindow(Adw.ApplicationWindow):
                 connect_btn.add_css_class("suggested-action")
                 connect_btn.connect("clicked", self._on_connect_clicked, access_point, None)
                 button_box.append(connect_btn)
-        
+
         details_box.append(button_box)
-    
+
     def _add_detail_row(self, grid, label, value, row):
         """Add a detail row to the grid"""
         label_widget = Gtk.Label(label=label)
         label_widget.set_halign(Gtk.Align.START)
         label_widget.add_css_class("dim-label")
-        
+
         value_widget = Gtk.Label(label=value)
         value_widget.set_halign(Gtk.Align.START)
         value_widget.set_hexpand(True)
         
         grid.attach(label_widget, 0, row, 1, 1)
         grid.attach(value_widget, 1, row, 1, 1)
-    
+
     def _on_connect_clicked(self, button, access_point, password_entry=None):
         """Handle connect button click"""
         if not self.wifi_device:
@@ -712,15 +720,15 @@ class SmolWifiManagerWindow(Adw.ApplicationWindow):
             if len(password) < 8:
                 self.status_label.set_text("Password must be at least 8 characters")
                 return
-        
+
         self.status_label.set_text("Connecting...")
         button.set_sensitive(False)
-        
+
         # Run connection in a separate thread
         thread = threading.Thread(target=self._connect_thread, args=(access_point, password))
         thread.daemon = True
         thread.start()
-    
+
     def _connect_thread(self, access_point, password=None):
         """Thread function to connect to a network"""
         try:
@@ -732,13 +740,13 @@ class SmolWifiManagerWindow(Adw.ApplicationWindow):
                 return
             
             ssid_str = NM.utils_ssid_to_utf8(ssid.get_data()) if ssid else "WiFi Network"
-            
+
             # First, check if there's an existing saved connection for this SSID
             # This is what nmcli does - it looks for existing connections first
             print(f"[CONNECT DEBUG] Looking for existing connection for SSID: {ssid_str}")
             existing_connection = None
             all_connections = self.client.get_connections()
-            
+
             for conn in all_connections:
                 try:
                     # Get the connection's WiFi setting
@@ -763,10 +771,10 @@ class SmolWifiManagerWindow(Adw.ApplicationWindow):
                 is_new_connection = False
             else:
                 # No existing connection found, create a new one
-                print(f"[CONNECT DEBUG] No existing connection found, creating new one")
+                print("[CONNECT DEBUG] No existing connection found, creating new one")
                 connection = NM.SimpleConnection.new()
                 is_new_connection = True
-                
+
                 # Only create WiFi settings for new connections
                 # Create WiFi setting
                 wifi_setting = NM.SettingWireless.new()
@@ -779,37 +787,37 @@ class SmolWifiManagerWindow(Adw.ApplicationWindow):
                 else:
                     # Convert to bytes first, then to GLib.Bytes
                     ssid_glib_bytes = GLib.Bytes.new(bytes(ssid))
-                
+
                 wifi_setting.set_property(NM.SETTING_WIRELESS_SSID, ssid_glib_bytes)
                 wifi_setting.set_property(NM.SETTING_WIRELESS_MODE, NM.SETTING_WIRELESS_MODE_INFRA)
-                
+
                 # Create wireless security setting if needed
                 flags = access_point.get_wpa_flags() | access_point.get_rsn_flags()
-                ApSecurityFlags = getattr(NM, '80211ApSecurityFlags')
-                
-                if flags & (ApSecurityFlags.KEY_MGMT_PSK | ApSecurityFlags.KEY_MGMT_802_1X):
+                ap_security_flags = getattr(NM, '80211ApSecurityFlags')
+
+                if flags & (ap_security_flags.KEY_MGMT_PSK | ap_security_flags.KEY_MGMT_802_1X):
                     # Network requires password
                     security_setting = NM.SettingWirelessSecurity.new()
-                    
+
                     # Check if it's WPA or WPA2
-                    if flags & (ApSecurityFlags.PAIR_CCMP | ApSecurityFlags.GROUP_CCMP):
+                    if flags & (ap_security_flags.PAIR_CCMP | ap_security_flags.GROUP_CCMP):
                         security_setting.set_property(NM.SETTING_WIRELESS_SECURITY_KEY_MGMT, "wpa-psk")
                         security_setting.set_property(NM.SETTING_WIRELESS_SECURITY_PROTO, ["rsn"])
-                    elif flags & (ApSecurityFlags.PAIR_TKIP | ApSecurityFlags.GROUP_TKIP):
+                    elif flags & (ap_security_flags.PAIR_TKIP | ap_security_flags.GROUP_TKIP):
                         security_setting.set_property(NM.SETTING_WIRELESS_SECURITY_KEY_MGMT, "wpa-psk")
                         security_setting.set_property(NM.SETTING_WIRELESS_SECURITY_PROTO, ["wpa"])
-                    
+
                     # Set password if provided
                     if password:
                         security_setting.set_property(NM.SETTING_WIRELESS_SECURITY_PSK, password)
-                        print(f"[CONNECT DEBUG] Password provided for connection")
-                    
+                        print("[CONNECT DEBUG] Password provided for connection")
+
                     connection.add_setting(wifi_setting)
                     connection.add_setting(security_setting)
                 else:
                     # Open network
                     connection.add_setting(wifi_setting)
-            
+
             # Only create these settings if it's a new connection
             if is_new_connection:
                 # Create connection setting
@@ -818,12 +826,12 @@ class SmolWifiManagerWindow(Adw.ApplicationWindow):
                 conn_setting.set_property(NM.SETTING_CONNECTION_ID, ssid_str)
                 conn_setting.set_property(NM.SETTING_CONNECTION_UUID, NM.utils_uuid_generate())
                 connection.add_setting(conn_setting)
-                
+
                 # Add IP4 config
                 ip4_setting = NM.SettingIP4Config.new()
                 ip4_setting.set_property("method", "auto")
                 connection.add_setting(ip4_setting)
-            
+
             # Validate connection before attempting (only for new connections)
             if is_new_connection:
                 print(f"[CONNECT DEBUG] Validating new connection for {ssid_str}")
@@ -833,18 +841,19 @@ class SmolWifiManagerWindow(Adw.ApplicationWindow):
                     # Try to get more details about validation failure
                     try:
                         # NetworkManager might have more details
-                        print(f"[CONNECT DEBUG] Connection settings: {[s.get_name() for s in connection.get_settings()]}")
+                        settings_names = [s.get_name() for s in connection.get_settings()]
+                        print(f"[CONNECT DEBUG] Connection settings: {settings_names}")
                     except Exception as e:
                         print(f"[CONNECT DEBUG] Could not get connection details: {e}")
                     GLib.idle_add(self.status_label.set_text, error_msg)
                     GLib.idle_add(self._enable_refresh)
                     return
-                print(f"[CONNECT DEBUG] Connection validation passed")
+                print("[CONNECT DEBUG] Connection validation passed")
             else:
-                print(f"[CONNECT DEBUG] Using existing connection, skipping validation")
-            
+                print("[CONNECT DEBUG] Using existing connection, skipping validation")
+
             # Define callback for async connect
-            def connect_callback(client, result, user_data):
+            def connect_callback(client, result, _user_data):
                 try:
                     print(f"[CONNECT DEBUG] Starting connection callback for {ssid_str}")
                     # Use appropriate finish method based on connection type
@@ -945,13 +954,13 @@ class SmolWifiManagerWindow(Adw.ApplicationWindow):
                                     self.status_label.set_text(f"Connected to {ssid_str}")
                                     self._refresh_after_connect()
                                     return False  # Don't repeat
-                                elif state in (NM.DeviceState.IP_CONFIG, NM.DeviceState.IP_CHECK, 
-                                             NM.DeviceState.PREPARE, NM.DeviceState.CONFIG, 
+                                if state in (NM.DeviceState.IP_CONFIG, NM.DeviceState.IP_CHECK,
+                                             NM.DeviceState.PREPARE, NM.DeviceState.CONFIG,
                                              NM.DeviceState.NEED_AUTH):
                                     # Still connecting, check again in 0.5 seconds
                                     GLib.timeout_add(500, check_and_refresh)  # Schedule next check
                                     return False  # Don't repeat this call
-                                elif state == NM.DeviceState.DISCONNECTED:
+                                if state == NM.DeviceState.DISCONNECTED:
                                     # Device is disconnected - but might be starting connection
                                     print(f"[CONNECT DEBUG] Device is DISCONNECTED (check #{check_count[0]})")
                                     print(f"[CONNECT DEBUG] Active connection exists: {active_connection is not None}")
@@ -977,10 +986,9 @@ class SmolWifiManagerWindow(Adw.ApplicationWindow):
                                     self.status_label.set_text(f"Connection to {ssid_str} failed (disconnected)")
                                     self._enable_refresh()
                                     return False  # Don't repeat
-                                elif state == NM.DeviceState.FAILED:
+                                if state == NM.DeviceState.FAILED:
                                     # Connection failed - check why
-                                    print(f"[CONNECT DEBUG] Device state is FAILED")
-                                    failure_reason = "Connection failed"
+                                    print("[CONNECT DEBUG] Device state is FAILED")
                                     try:
                                         active_conn = self.wifi_device.get_active_connection()
                                         if active_conn and hasattr(active_conn, 'get_state'):
@@ -989,17 +997,14 @@ class SmolWifiManagerWindow(Adw.ApplicationWindow):
                                         # Check if password is needed
                                         if active_connection and hasattr(active_connection, 'get_state'):
                                             ac_state = active_connection.get_state()
-                                            if ac_state == NM.ActiveConnectionState.ACTIVATED:
-                                                failure_reason = "Connection failed (may need password)"
-                                            else:
-                                                failure_reason = f"Connection failed (state: {ac_state})"
+                                            print(f"[CONNECT DEBUG] ActiveConnection state: {ac_state}")
                                     except Exception as e:
                                         print(f"[CONNECT DEBUG] Error getting failure details: {e}")
-                                    
+
                                     self.status_label.set_text(f"Connection to {ssid_str} failed. Password may be required.")
                                     self._enable_refresh()
                                     return False  # Don't repeat
-                                elif state in (NM.DeviceState.UNMANAGED, NM.DeviceState.UNAVAILABLE):
+                                if state in (NM.DeviceState.UNMANAGED, NM.DeviceState.UNAVAILABLE):
                                     # Connection failed or device unavailable
                                     state_names = {
                                         NM.DeviceState.UNMANAGED: "unmanaged",
@@ -1009,22 +1014,19 @@ class SmolWifiManagerWindow(Adw.ApplicationWindow):
                                     self.status_label.set_text(f"Connection to {ssid_str} failed ({state_name})")
                                     self._enable_refresh()
                                     return False  # Don't repeat
-                                else:
-                                    # Unknown state - wait a bit more before giving up
-                                    if check_count[0] < 5:
-                                        # Give it a few more tries for unknown states
-                                        GLib.timeout_add(500, check_and_refresh)  # Schedule next check
-                                        return False  # Don't repeat this call
-                                    else:
-                                        # After several attempts, treat as failed
-                                        self.status_label.set_text(f"Connection to {ssid_str} failed (state: {state})")
-                                        self._enable_refresh()
-                                        return False  # Don't repeat
-                            else:
-                                # No device, just refresh after delay
-                                self.status_label.set_text(f"Connected to {ssid_str}")
-                                self._refresh_after_connect()
+                                # Unknown state - wait a bit more before giving up
+                                if check_count[0] < 5:
+                                    # Give it a few more tries for unknown states
+                                    GLib.timeout_add(500, check_and_refresh)  # Schedule next check
+                                    return False  # Don't repeat this call
+                                # After several attempts, treat as failed
+                                self.status_label.set_text(f"Connection to {ssid_str} failed (state: {state})")
+                                self._enable_refresh()
                                 return False  # Don't repeat
+                            # No device, just refresh after delay
+                            self.status_label.set_text(f"Connected to {ssid_str}")
+                            self._refresh_after_connect()
+                            return False  # Don't repeat
                         
                         # Start checking connection state after a longer delay (2 seconds)
                         # Connection might take a moment to start
@@ -1044,21 +1046,21 @@ class SmolWifiManagerWindow(Adw.ApplicationWindow):
                                 error = result.get_error()
                                 if error:
                                     print(f"[CONNECT DEBUG] Error from result: {error}")
-                            except:
+                            except Exception:
                                 pass
-                        GLib.idle_add(self.status_label.set_text, f"Failed to start connection to {ssid_str}. Password may be required.")
+                        error_text = f"Failed to start connection to {ssid_str}. Password may be required."
+                        GLib.idle_add(self.status_label.set_text, error_text)
                         GLib.idle_add(self._enable_refresh)
                 except Exception as e:
                     error_msg = f"Connection error: {str(e)}"
                     print(f"[CONNECT DEBUG] Exception in connect callback: {error_msg}")
-                    import traceback
-                    print(f"[CONNECT DEBUG] Full traceback:")
+                    print("[CONNECT DEBUG] Full traceback:")
                     print(traceback.format_exc())
                     if self.wifi_device:
                         try:
                             device_state = self.wifi_device.get_state()
                             print(f"[CONNECT DEBUG] Device state during exception: {device_state}")
-                        except:
+                        except Exception:
                             pass
                     GLib.idle_add(self.status_label.set_text, f"Connection error: {error_msg}")
                     GLib.idle_add(self._enable_refresh)
@@ -1068,20 +1070,22 @@ class SmolWifiManagerWindow(Adw.ApplicationWindow):
             def do_connect():
                 try:
                     print(f"[CONNECT DEBUG] Starting async connection to {ssid_str}")
-                    print(f"[CONNECT DEBUG] Using {'existing' if not is_new_connection else 'new'} connection")
+                    conn_type = 'existing' if not is_new_connection else 'new'
+                    print(f"[CONNECT DEBUG] Using {conn_type} connection")
                     print(f"[CONNECT DEBUG] Connection object: {connection}")
-                    print(f"[CONNECT DEBUG] Connection ID: {connection.get_id() if hasattr(connection, 'get_id') else 'N/A'}")
+                    conn_id = connection.get_id() if hasattr(connection, 'get_id') else 'N/A'
+                    print(f"[CONNECT DEBUG] Connection ID: {conn_id}")
                     print(f"[CONNECT DEBUG] WiFi device: {self.wifi_device}")
                     if self.wifi_device:
                         print(f"[CONNECT DEBUG] Device state before connect: {self.wifi_device.get_state()}")
                         print(f"[CONNECT DEBUG] Device type: {self.wifi_device.get_device_type()}")
                     self.status_label.set_text(f"Connecting to {ssid_str}...")
-                    
+
                     # For existing connections, we can use activate_connection_async
                     # For new connections, use add_and_activate_connection_async
                     if not is_new_connection:
                         # Activate existing connection
-                        print(f"[CONNECT DEBUG] Activating existing connection")
+                        print("[CONNECT DEBUG] Activating existing connection")
                         self.client.activate_connection_async(
                             connection,
                             self.wifi_device,
@@ -1092,31 +1096,29 @@ class SmolWifiManagerWindow(Adw.ApplicationWindow):
                         )
                     else:
                         # Add and activate new connection
-                        print(f"[CONNECT DEBUG] Adding and activating new connection")
+                        print("[CONNECT DEBUG] Adding and activating new connection")
                         self.client.add_and_activate_connection_async(
-                            connection, 
-                            self.wifi_device, 
+                            connection,
+                            self.wifi_device,
                             None,  # specific_object
                             None,  # cancellable
-                            connect_callback, 
+                            connect_callback,
                             None   # user_data
                         )
-                    print(f"[CONNECT DEBUG] Async connection request sent")
+                    print("[CONNECT DEBUG] Async connection request sent")
                 except Exception as e:
                     error_msg = f"Failed to start connection: {str(e)}"
                     print(f"[CONNECT DEBUG] Exception starting async connection: {error_msg}")
-                    import traceback
-                    print(f"[CONNECT DEBUG] Full traceback:")
+                    print("[CONNECT DEBUG] Full traceback:")
                     print(traceback.format_exc())
                     self.status_label.set_text(error_msg)
                     self._enable_refresh()
                 return False
-            
+
             # Run connection in main thread
             GLib.idle_add(do_connect)
-            
+
         except Exception as e:
-            import traceback
             error_msg = f"Connection error: {str(e)}"
             print(f"Connect thread error: {error_msg}")
             print(traceback.format_exc())
@@ -1129,8 +1131,8 @@ class SmolWifiManagerWindow(Adw.ApplicationWindow):
         if self.refresh_btn.get_sensitive():
             self.scan_networks(is_manual=True)
         return False  # Don't repeat
-    
-    def _on_disconnect_clicked(self, button, access_point):
+
+    def _on_disconnect_clicked(self, button, _access_point):
         """Handle disconnect button click"""
         if not self.wifi_device:
             self.status_label.set_text("Error: WiFi device not available")
@@ -1138,7 +1140,7 @@ class SmolWifiManagerWindow(Adw.ApplicationWindow):
         
         self.status_label.set_text("Disconnecting...")
         button.set_sensitive(False)
-        
+
         # Run disconnection in a separate thread
         thread = threading.Thread(target=self._disconnect_thread)
         thread.daemon = True
@@ -1162,10 +1164,10 @@ class SmolWifiManagerWindow(Adw.ApplicationWindow):
                             break
                     if active_connection:
                         break
-            
+
             if active_connection:
                 # Define callback for async disconnect
-                def disconnect_callback(client, result, user_data):
+                def disconnect_callback(client, result, _user_data):
                     try:
                         client.deactivate_connection_finish(result)
                         GLib.idle_add(self.status_label.set_text, "Disconnected")
@@ -1176,23 +1178,22 @@ class SmolWifiManagerWindow(Adw.ApplicationWindow):
                         print(f"Disconnect callback error: {error_msg}")
                         GLib.idle_add(self.status_label.set_text, error_msg)
                         GLib.idle_add(self._enable_refresh)
-                
+
                 # Disconnect asynchronously
                 # Note: deactivate_connection_async signature is:
                 # (connection, cancellable, callback, user_data)
                 self.client.deactivate_connection_async(
-                    active_connection, 
+                    active_connection,
                     None,  # cancellable
-                    disconnect_callback, 
+                    disconnect_callback,
                     None   # user_data
                 )
                 GLib.idle_add(self.status_label.set_text, "Disconnecting...")
             else:
                 GLib.idle_add(self.status_label.set_text, "No active connection to disconnect")
                 GLib.idle_add(self._enable_refresh)
-            
+
         except Exception as e:
-            import traceback
             error_msg = f"Disconnect error: {str(e)}"
             print(f"Disconnect thread error: {error_msg}")
             print(traceback.format_exc())
@@ -1215,7 +1216,7 @@ class SmolWifiManagerWindow(Adw.ApplicationWindow):
         # Use GLib.idle_add to ensure this happens in the main thread
         # and prevent issues during window resize
         GLib.idle_add(self._do_enable_refresh)
-    
+
     def _do_enable_refresh(self):
         """Actually enable the refresh button (called from main thread)"""
         self.refresh_btn.set_sensitive(True)
@@ -1223,20 +1224,23 @@ class SmolWifiManagerWindow(Adw.ApplicationWindow):
 
 
 class SmolWifiManagerApp(Adw.Application):
+    """Main application class for Smol WiFi Manager."""
+
     def __init__(self):
         super().__init__(application_id="com.smol.wifimanager")
+        self.win = None
         self.connect("activate", self.on_activate)
 
-    def on_activate(self, app):
+    def on_activate(self, _app):
         """Handle application activation"""
         self.win = SmolWifiManagerWindow(self)
         self.win.present()
         # Try to remove decorations after presenting
         GLib.idle_add(self._remove_decorations)
-    
+
     def _remove_decorations(self):
         """Remove window decorations"""
-        if hasattr(self, 'win'):
+        if hasattr(self, 'win') and self.win:
             self.win.set_decorated(False)
             # Try on native window too
             native = self.win.get_native()
@@ -1246,6 +1250,7 @@ class SmolWifiManagerApp(Adw.Application):
 
 
 def main():
+    """Main entry point for the application."""
     app = SmolWifiManagerApp()
     app.run(None)
 
