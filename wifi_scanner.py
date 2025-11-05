@@ -21,7 +21,7 @@ class SmolWifiManagerWindow(Adw.ApplicationWindow):
     """Main window class for Smol WiFi Manager application."""
     def __init__(self, app):
         super().__init__(application=app, title="Smol WiFi Manager")
-        self.set_default_size(600, 500)
+        self.set_default_size(530, 800)
         self.set_size_request(530, 800)  # Minimum width: 530, Minimum height: 800
 
         # NetworkManager client
@@ -568,6 +568,9 @@ class SmolWifiManagerWindow(Adw.ApplicationWindow):
         button_box.set_margin_top(6)
 
         if is_active:
+            spacer = Gtk.Box()
+            spacer.set_hexpand(True)
+            button_box.append(spacer)
             disconnect_btn = Gtk.Button(label="Disconnect")
             disconnect_btn.add_css_class("destructive-action")
             disconnect_btn.connect("clicked", self._on_disconnect_clicked, access_point)
@@ -662,6 +665,9 @@ class SmolWifiManagerWindow(Adw.ApplicationWindow):
         button_box.set_margin_top(6)
 
         if is_active:
+            spacer = Gtk.Box()
+            spacer.set_hexpand(True)
+            button_box.append(spacer)
             disconnect_btn = Gtk.Button(label="Disconnect")
             disconnect_btn.add_css_class("destructive-action")
             disconnect_btn.connect("clicked", self._on_disconnect_clicked, access_point)

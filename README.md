@@ -153,3 +153,10 @@ If you get permission errors:
 - Make sure you're in the `network` group (some distributions require this)
 - Check that NetworkManager D-Bus service is accessible: `dbus-send --system --print-reply --dest=org.freedesktop.NetworkManager /org/freedesktop/NetworkManager org.freedesktop.DBus.Properties.Get string:org.freedesktop.NetworkManager string:AllDevices`
 
+## Hyprland rules:
+```
+# SMOL WIFI MGR
+windowrulev2 = float, class:(^com\.smol.*)
+windowrulev2 = move 2025 48, class:(^com\.smol.*)
+# windowrulev2 = opacity 0.9, class:(^com\.smol.*)
+```
