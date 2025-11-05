@@ -13,10 +13,12 @@ gi.require_version('Gtk', '4.0')
 gi.require_version('Adw', '1')
 gi.require_version('NM', '1.0')
 
+# pylint: disable=wrong-import-position
 from gi.repository import Gtk, Adw, GLib, NM, Gdk
 
 
 class SmolWifiManagerWindow(Adw.ApplicationWindow):
+    """Main window class for Smol WiFi Manager application."""
     def __init__(self, app):
         super().__init__(application=app, title="Smol WiFi Manager")
         self.set_default_size(600, 500)
@@ -86,7 +88,7 @@ class SmolWifiManagerWindow(Adw.ApplicationWindow):
         # Initial scan after window is shown
         GLib.idle_add(lambda: self.scan_networks(is_manual=True))
 
-    def _on_window_realize(self, widget):
+    def _on_window_realize(self, _widget):
         """Remove window decorations and apply CSS after window is realized"""
         # Get the underlying native window
         native = self.get_native()
@@ -118,7 +120,7 @@ class SmolWifiManagerWindow(Adw.ApplicationWindow):
         # Force update
         self.queue_draw()
 
-    def on_refresh_clicked(self, button):
+    def on_refresh_clicked(self, _button):
         """Handle refresh button click"""
         self.scan_networks(is_manual=True)
 
@@ -182,12 +184,11 @@ class SmolWifiManagerWindow(Adw.ApplicationWindow):
             max_wait = 5
             wait_time = 0.5
             iterations = int(max_wait / wait_time)
-            initial_count = len(wifi_device.get_access_points())
 
             # Wait a bit for scan to start
             time.sleep(1.0)
 
-            for i in range(iterations):
+            for _ in range(iterations):
                 time.sleep(wait_time)
                 access_points = wifi_device.get_access_points()
 
@@ -284,7 +285,7 @@ class SmolWifiManagerWindow(Adw.ApplicationWindow):
 
             if bssid in self.network_rows:
                 # Update existing row
-                row, old_ap, old_icon, details_box = self.network_rows[bssid]
+                row, _old_ap, old_icon, details_box = self.network_rows[bssid]
                 # Ensure expander content is set up if it wasn't before
                 if details_box is None:
                     details_box = self._setup_expander_content(row, ap, is_active)
@@ -383,14 +384,14 @@ class SmolWifiManagerWindow(Adw.ApplicationWindow):
     def _create_network_row(self, access_point, is_active=False):
         """Create a row widget for a network"""
         row = Adw.ExpanderRow()
-        icon = self._update_network_row(row, access_point, is_active, None)
-        details_box = self._setup_expander_content(row, access_point, is_active)
+        _icon = self._update_network_row(row, access_point, is_active, None)
+        _details_box = self._setup_expander_content(row, access_point, is_active)
         # Connect to expanded signal for accordion behavior
         row.connect("notify::expanded", self._on_row_expanded, row)
         # Store details_box will be handled by caller
         return row
 
-    def _on_row_expanded(self, row, param, user_data):
+    def _on_row_expanded(self, row, _param, _user_data):
         """Handle row expansion - collapse other rows for accordion behavior"""
         if row.get_expanded():
             # If this row is being expanded, collapse the previously expanded row
@@ -432,12 +433,12 @@ class SmolWifiManagerWindow(Adw.ApplicationWindow):
             title_text = f"{ssid_str} • Connected"
             row.set_title(title_text)
             # Highlight the active network with custom styling
-            if "connected-network" not in [cls for cls in row.get_css_classes()]:
+            if "connected-network" not in list(row.get_css_classes()):
                 row.add_css_class("connected-network")
         else:
             row.set_title(ssid_str)
             # Remove connected-network class if it was active before
-            if "connected-network" in [cls for cls in row.get_css_classes()]:
+            if "connected-network" in list(row.get_css_classes()):
                 row.remove_css_class("connected-network")
 
         # Signal strength
@@ -492,13 +493,13 @@ class SmolWifiManagerWindow(Adw.ApplicationWindow):
         details_box.set_margin_bottom(12)
         details_box.set_margin_start(12)
         details_box.set_margin_end(12)
-        
+
         # Network details
         details_grid = Gtk.Grid()
         details_grid.set_column_spacing(12)
         details_grid.set_row_spacing(6)
         details_grid.set_column_homogeneous(False)
-        
+
         # BSSID
         bssid = access_point.get_bssid()
         if bssid:
@@ -509,17 +510,17 @@ class SmolWifiManagerWindow(Adw.ApplicationWindow):
                 # Already a string, use as-is or format if needed
                 bssid_str = str(bssid)
             self._add_detail_row(details_grid, "BSSID:", bssid_str, 0)
-        
+
         # Channel
         freq = access_point.get_frequency()
         if freq > 0:
             channel = NM.utils_wifi_freq_to_channel(freq)
             channel_str = f"{channel} ({freq / 1000:.0f} MHz)"
             self._add_detail_row(details_grid, "Channel:", channel_str, 1)
-        
+
         # Mode
         mode = access_point.get_mode()
-        mode_str = str(mode).split('.')[-1] if mode else "Unknown"
+        mode_str = str(mode).rsplit('.', maxsplit=1)[-1] if mode else "Unknown"
         self._add_detail_row(details_grid, "Mode:", mode_str, 2)
 
         # Max Bitrate
@@ -583,8 +584,11 @@ class SmolWifiManagerWindow(Adw.ApplicationWindow):
                 # Connect button
                 connect_btn = Gtk.Button(label="Connect")
                 connect_btn.add_css_class("suggested-action")
-                connect_btn.set_sensitive(False)  # Disabled until password is entered
-                connect_btn.connect("clicked", self._on_connect_clicked, access_point, password_entry)
+                # Disabled until password entered
+                connect_btn.set_sensitive(False)
+                connect_btn.connect(
+                    "clicked", self._on_connect_clicked, access_point, password_entry
+                )
                 button_box.append(connect_btn)
 
                 # Enable/disable button based on password length
@@ -651,7 +655,7 @@ class SmolWifiManagerWindow(Adw.ApplicationWindow):
                                     break
                     except Exception:
                         continue
-        
+
         # Add new button box
         button_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
         button_box.set_halign(Gtk.Align.FILL)
@@ -663,7 +667,7 @@ class SmolWifiManagerWindow(Adw.ApplicationWindow):
             disconnect_btn.connect("clicked", self._on_disconnect_clicked, access_point)
             button_box.append(disconnect_btn)
         else:
-            # If network requires password and has no saved connection, show password field
+            # If network requires password and has no saved connection, show password
             if requires_password and not has_saved_connection:
                 # Password entry
                 password_entry = Gtk.PasswordEntry()
@@ -673,8 +677,11 @@ class SmolWifiManagerWindow(Adw.ApplicationWindow):
                 # Connect button
                 connect_btn = Gtk.Button(label="Connect")
                 connect_btn.add_css_class("suggested-action")
-                connect_btn.set_sensitive(False)  # Disabled until password is entered
-                connect_btn.connect("clicked", self._on_connect_clicked, access_point, password_entry)
+                # Disabled until password entered
+                connect_btn.set_sensitive(False)
+                connect_btn.connect(
+                    "clicked", self._on_connect_clicked, access_point, password_entry
+                )
                 button_box.append(connect_btn)
 
                 # Enable/disable button based on password length
@@ -703,7 +710,7 @@ class SmolWifiManagerWindow(Adw.ApplicationWindow):
         value_widget = Gtk.Label(label=value)
         value_widget.set_halign(Gtk.Align.START)
         value_widget.set_hexpand(True)
-        
+
         grid.attach(label_widget, 0, row, 1, 1)
         grid.attach(value_widget, 1, row, 1, 1)
 
@@ -712,7 +719,7 @@ class SmolWifiManagerWindow(Adw.ApplicationWindow):
         if not self.wifi_device:
             self.status_label.set_text("Error: WiFi device not available")
             return
-        
+
         # Get password if password entry is provided
         password = None
         if password_entry:
@@ -735,10 +742,11 @@ class SmolWifiManagerWindow(Adw.ApplicationWindow):
             # Get SSID
             ssid = access_point.get_ssid()
             if not ssid:
-                GLib.idle_add(self.status_label.set_text, "Error: Network has no SSID")
+                msg = "Error: Network has no SSID"
+                GLib.idle_add(self.status_label.set_text, msg)
                 GLib.idle_add(self._enable_refresh)
                 return
-            
+
             ssid_str = NM.utils_ssid_to_utf8(ssid.get_data()) if ssid else "WiFi Network"
 
             # First, check if there's an existing saved connection for this SSID
@@ -755,18 +763,22 @@ class SmolWifiManagerWindow(Adw.ApplicationWindow):
                         # Get SSID from existing connection
                         existing_ssid = wifi_setting.get_ssid()
                         if existing_ssid:
-                            existing_ssid_str = NM.utils_ssid_to_utf8(existing_ssid.get_data())
+                            existing_ssid_str = NM.utils_ssid_to_utf8(
+                                existing_ssid.get_data()
+                            )
                             if existing_ssid_str == ssid_str:
-                                print(f"[CONNECT DEBUG] Found existing connection: {conn.get_id()}")
+                                conn_id = conn.get_id()
+                                print(f"[CONNECT DEBUG] Found existing connection: {conn_id}")
                                 existing_connection = conn
                                 break
                 except Exception as e:
                     print(f"[CONNECT DEBUG] Error checking connection: {e}")
                     continue
-            
+
             if existing_connection:
                 # Use existing connection - this should have the saved password
-                print(f"[CONNECT DEBUG] Using existing saved connection: {existing_connection.get_id()}")
+                conn_id = existing_connection.get_id()
+                print(f"[CONNECT DEBUG] Using existing saved connection: {conn_id}")
                 connection = existing_connection
                 is_new_connection = False
             else:
@@ -801,11 +813,15 @@ class SmolWifiManagerWindow(Adw.ApplicationWindow):
 
                     # Check if it's WPA or WPA2
                     if flags & (ap_security_flags.PAIR_CCMP | ap_security_flags.GROUP_CCMP):
-                        security_setting.set_property(NM.SETTING_WIRELESS_SECURITY_KEY_MGMT, "wpa-psk")
-                        security_setting.set_property(NM.SETTING_WIRELESS_SECURITY_PROTO, ["rsn"])
+                        key_mgmt = NM.SETTING_WIRELESS_SECURITY_KEY_MGMT
+                        security_setting.set_property(key_mgmt, "wpa-psk")
+                        proto = NM.SETTING_WIRELESS_SECURITY_PROTO
+                        security_setting.set_property(proto, ["rsn"])
                     elif flags & (ap_security_flags.PAIR_TKIP | ap_security_flags.GROUP_TKIP):
-                        security_setting.set_property(NM.SETTING_WIRELESS_SECURITY_KEY_MGMT, "wpa-psk")
-                        security_setting.set_property(NM.SETTING_WIRELESS_SECURITY_PROTO, ["wpa"])
+                        key_mgmt = NM.SETTING_WIRELESS_SECURITY_KEY_MGMT
+                        security_setting.set_property(key_mgmt, "wpa-psk")
+                        proto = NM.SETTING_WIRELESS_SECURITY_PROTO
+                        security_setting.set_property(proto, ["wpa"])
 
                     # Set password if provided
                     if password:
@@ -860,130 +876,173 @@ class SmolWifiManagerWindow(Adw.ApplicationWindow):
                     if not is_new_connection:
                         # For existing connections, use activate_connection_finish
                         connection_result = client.activate_connection_finish(result)
-                        print(f"[CONNECT DEBUG] Used activate_connection_finish for existing connection")
+                        print("[CONNECT DEBUG] Used activate_connection_finish")
                     else:
                         # For new connections, use add_and_activate_connection_finish
-                        connection_result = client.add_and_activate_connection_finish(result)
-                        print(f"[CONNECT DEBUG] Used add_and_activate_connection_finish for new connection")
+                        finish_method = client.add_and_activate_connection_finish
+                        connection_result = finish_method(result)
+                        print("[CONNECT DEBUG] Used add_and_activate_connection_finish")
                     print(f"[CONNECT DEBUG] Connection result type: {type(connection_result)}")
                     print(f"[CONNECT DEBUG] Connection result value: {connection_result}")
-                    
+
                     if connection_result:
                         # Check what was returned - could be ActiveConnection or tuple
                         active_conn = None
                         if isinstance(connection_result, tuple):
                             conn, active_conn = connection_result
                             print(f"[CONNECT DEBUG] Connection object: {conn}")
-                            print(f"[CONNECT DEBUG] Active connection object: {active_conn}")
+                            msg = "[CONNECT DEBUG] Active connection object"
+                            print(f"{msg}: {active_conn}")
                         else:
                             # Direct ActiveConnection object
                             active_conn = connection_result
-                            print(f"[CONNECT DEBUG] Connection result is ActiveConnection: {active_conn}")
-                        
+                            msg = "[CONNECT DEBUG] Connection result is ActiveConnection"
+                            print(f"{msg}: {active_conn}")
+
                         if active_conn:
-                            print(f"[CONNECT DEBUG] Active connection ID: {active_conn.get_id() if hasattr(active_conn, 'get_id') else 'N/A'}")
-                            print(f"[CONNECT DEBUG] Active connection state: {active_conn.get_state() if hasattr(active_conn, 'get_state') else 'N/A'}")
+                            has_get_id = hasattr(active_conn, 'get_id')
+                            conn_id = active_conn.get_id() if has_get_id else 'N/A'
+                            print(f"[CONNECT DEBUG] Active connection ID: {conn_id}")
+                            has_get_state = hasattr(active_conn, 'get_state')
+                            conn_state = active_conn.get_state() if has_get_state else 'N/A'
+                            msg = "[CONNECT DEBUG] Active connection state"
+                            print(f"{msg}: {conn_state}")
                             # Check for connection error
                             try:
                                 if hasattr(active_conn, 'get_state'):
                                     conn_state = active_conn.get_state()
-                                    print(f"[CONNECT DEBUG] ActiveConnection state: {conn_state}")
+                                    msg = "[CONNECT DEBUG] ActiveConnection state"
+                                    print(f"{msg}: {conn_state}")
                                     # Check if there's error information
                                     if hasattr(active_conn, 'get_error'):
                                         error = active_conn.get_error()
                                         if error:
-                                            print(f"[CONNECT DEBUG] ActiveConnection error: {error}")
+                                            msg = "[CONNECT DEBUG] ActiveConnection error"
+                                            print(f"{msg}: {error}")
                             except Exception as e:
-                                print(f"[CONNECT DEBUG] Could not get ActiveConnection details: {e}")
-                        
+                                msg = f"[CONNECT DEBUG] Could not get ActiveConnection details: {e}"
+                                print(msg)
+
                         # Check device state immediately
                         if self.wifi_device:
                             device_state = self.wifi_device.get_state()
-                            print(f"[CONNECT DEBUG] Device state immediately after connection: {device_state}")
+                            msg = "[CONNECT DEBUG] Device state after connection"
+                            print(f"{msg}: {device_state}")
                             if device_state == NM.DeviceState.FAILED:
-                                print(f"[CONNECT DEBUG] WARNING: Device state is FAILED immediately after connection!")
+                                print("[CONNECT DEBUG] WARNING: Device state is FAILED!")
                                 # Check if there's a reason for the failure
                                 try:
                                     active_conn_obj = self.wifi_device.get_active_connection()
                                     if active_conn_obj:
-                                        print(f"[CONNECT DEBUG] Active connection object exists: {active_conn_obj}")
+                                        msg = "[CONNECT DEBUG] Active connection exists"
+                                        print(f"{msg}: {active_conn_obj}")
                                         if hasattr(active_conn_obj, 'get_state'):
-                                            print(f"[CONNECT DEBUG] Active connection state: {active_conn_obj.get_state()}")
+                                            state = active_conn_obj.get_state()
+                                            msg = "[CONNECT DEBUG] Active connection state"
+                                            print(f"{msg}: {state}")
                                 except Exception as e:
-                                    print(f"[CONNECT DEBUG] Error checking active connection: {e}")
+                                    msg = "[CONNECT DEBUG] Error checking active connection"
+                                    print(f"{msg}: {e}")
                             active_ap = self.wifi_device.get_active_access_point()
                             print(f"[CONNECT DEBUG] Active access point: {active_ap}")
-                        
-                        GLib.idle_add(self.status_label.set_text, f"Connecting to {ssid_str}...")
+
+                        msg = f"Connecting to {ssid_str}..."
+                        GLib.idle_add(self.status_label.set_text, msg)
                         # Wait for device to be fully connected before refreshing
                         # Check connection state with a delay to ensure it's established
                         max_checks = 30  # Maximum 15 seconds (30 * 500ms)
                         check_count = [0]  # Use list to allow modification in nested function
-                        
+
                         def check_and_refresh():
                             check_count[0] += 1
                             if check_count[0] > max_checks:
                                 # Timeout - refresh anyway
-                                print(f"[CONNECT DEBUG] Connection to {ssid_str} timed out after {max_checks} checks")
+                                msg = f"[CONNECT DEBUG] Connection timed out after {max_checks} checks"
+                                print(msg)
                                 if self.wifi_device:
                                     final_state = self.wifi_device.get_state()
-                                    print(f"[CONNECT DEBUG] Final device state: {final_state}")
+                                    msg = "[CONNECT DEBUG] Final device state"
+                                    print(f"{msg}: {final_state}")
                                     active_conn = self.wifi_device.get_active_connection()
-                                    print(f"[CONNECT DEBUG] Final active connection: {active_conn}")
-                                self.status_label.set_text(f"Connection to {ssid_str} timed out")
+                                    msg = "[CONNECT DEBUG] Final active connection"
+                                    print(f"{msg}: {active_conn}")
+                                msg = f"Connection to {ssid_str} timed out"
+                                self.status_label.set_text(msg)
                                 self._enable_refresh()
                                 return False
-                            
+
                             if self.wifi_device:
                                 state = self.wifi_device.get_state()
                                 # Debug: print state for troubleshooting
-                                print(f"[CONNECT DEBUG] Device state check #{check_count[0]}: {state}")
-                                
+                                check_num = check_count[0]
+                                msg = f"[CONNECT DEBUG] Device state check #{check_num}"
+                                print(f"{msg}: {state}")
+
                                 # Also check if there's an active connection
                                 active_ap = self.wifi_device.get_active_access_point()
                                 active_connection = self.wifi_device.get_active_connection()
-                                print(f"[CONNECT DEBUG] Active AP: {active_ap}, Active connection: {active_connection}")
-                                
+                                ap_msg = (
+                                    f"Active AP: {active_ap}, "
+                                    f"Active connection: {active_connection}"
+                                )
+                                print(f"[CONNECT DEBUG] {ap_msg}")
+
                                 if active_connection:
-                                    print(f"[CONNECT DEBUG] Active connection state: {active_connection.get_state() if hasattr(active_connection, 'get_state') else 'N/A'}")
-                                    print(f"[CONNECT DEBUG] Active connection ID: {active_connection.get_id() if hasattr(active_connection, 'get_id') else 'N/A'}")
-                                
+                                    has_get_state = hasattr(active_connection, 'get_state')
+                                    ac_state = active_connection.get_state() if has_get_state else 'N/A'
+                                    print(f"[CONNECT DEBUG] Active connection state: {ac_state}")
+                                    has_get_id = hasattr(active_connection, 'get_id')
+                                    ac_id = active_connection.get_id() if has_get_id else 'N/A'
+                                    print(f"[CONNECT DEBUG] Active connection ID: {ac_id}")
+
                                 # Check if device is connected or connecting
                                 if state == NM.DeviceState.ACTIVATED:
                                     # Fully connected!
                                     self.status_label.set_text(f"Connected to {ssid_str}")
                                     self._refresh_after_connect()
                                     return False  # Don't repeat
-                                if state in (NM.DeviceState.IP_CONFIG, NM.DeviceState.IP_CHECK,
-                                             NM.DeviceState.PREPARE, NM.DeviceState.CONFIG,
-                                             NM.DeviceState.NEED_AUTH):
+                                connecting_states = (
+                                    NM.DeviceState.IP_CONFIG,
+                                    NM.DeviceState.IP_CHECK,
+                                    NM.DeviceState.PREPARE,
+                                    NM.DeviceState.CONFIG,
+                                    NM.DeviceState.NEED_AUTH
+                                )
+                                if state in connecting_states:
                                     # Still connecting, check again in 0.5 seconds
-                                    GLib.timeout_add(500, check_and_refresh)  # Schedule next check
+                                    GLib.timeout_add(500, check_and_refresh)
                                     return False  # Don't repeat this call
                                 if state == NM.DeviceState.DISCONNECTED:
                                     # Device is disconnected - but might be starting connection
-                                    print(f"[CONNECT DEBUG] Device is DISCONNECTED (check #{check_count[0]})")
-                                    print(f"[CONNECT DEBUG] Active connection exists: {active_connection is not None}")
+                                    check_num = check_count[0]
+                                    print(f"[CONNECT DEBUG] Device is DISCONNECTED (check #{check_num})")
+                                    ac_exists = active_connection is not None
+                                    print(f"[CONNECT DEBUG] Active connection exists: {ac_exists}")
                                     if active_connection:
-                                        print(f"[CONNECT DEBUG] Active connection details: {active_connection}")
+                                        msg = "[CONNECT DEBUG] Active connection details"
+                                        print(f"{msg}: {active_connection}")
                                     # Give it more time if we just started (first few checks)
                                     if check_count[0] <= 3:
                                         # Still early, connection might be starting
-                                        print(f"[CONNECT DEBUG] Still early, waiting for connection to start...")
-                                        GLib.timeout_add(500, check_and_refresh)  # Schedule next check
+                                        print("[CONNECT DEBUG] Still early, waiting...")
+                                        GLib.timeout_add(500, check_and_refresh)
                                         return False
-                                    elif active_connection:
+                                    if active_connection:
                                         # We have an active connection but device is disconnected?
                                         # This is unusual, but give it a bit more time
-                                        print(f"[CONNECT DEBUG] Active connection exists but device is disconnected, waiting...")
+                                        print("[CONNECT DEBUG] Active connection exists but device disconnected")
                                         if check_count[0] <= 6:
                                             GLib.timeout_add(500, check_and_refresh)
                                             return False
                                     # Connection failed
-                                    print(f"[CONNECT DEBUG] Connection failed - device stayed disconnected after {check_count[0]} checks")
+                                    check_num = check_count[0]
+                                    msg = f"[CONNECT DEBUG] Connection failed after {check_num} checks"
+                                    print(msg)
                                     if active_connection:
-                                        print(f"[CONNECT DEBUG] Despite active connection object, device never connected")
-                                    self.status_label.set_text(f"Connection to {ssid_str} failed (disconnected)")
+                                        msg = "[CONNECT DEBUG] Active connection object but device never connected"
+                                        print(msg)
+                                    msg = f"Connection to {ssid_str} failed (disconnected)"
+                                    self.status_label.set_text(msg)
                                     self._enable_refresh()
                                     return False  # Don't repeat
                                 if state == NM.DeviceState.FAILED:
@@ -993,15 +1052,21 @@ class SmolWifiManagerWindow(Adw.ApplicationWindow):
                                         active_conn = self.wifi_device.get_active_connection()
                                         if active_conn and hasattr(active_conn, 'get_state'):
                                             conn_state = active_conn.get_state()
-                                            print(f"[CONNECT DEBUG] ActiveConnection state when device failed: {conn_state}")
+                                            msg = "[CONNECT DEBUG] ActiveConnection state "
+                                            msg += "when device failed"
+                                            print(f"{msg}: {conn_state}")
                                         # Check if password is needed
-                                        if active_connection and hasattr(active_connection, 'get_state'):
+                                        has_state = hasattr(active_connection, 'get_state')
+                                        if active_connection and has_state:
                                             ac_state = active_connection.get_state()
-                                            print(f"[CONNECT DEBUG] ActiveConnection state: {ac_state}")
+                                            msg = "[CONNECT DEBUG] ActiveConnection state"
+                                            print(f"{msg}: {ac_state}")
                                     except Exception as e:
                                         print(f"[CONNECT DEBUG] Error getting failure details: {e}")
 
-                                    self.status_label.set_text(f"Connection to {ssid_str} failed. Password may be required.")
+                                    msg = f"Connection to {ssid_str} failed."
+                                    msg += " Password may be required."
+                                    self.status_label.set_text(msg)
                                     self._enable_refresh()
                                     return False  # Don't repeat
                                 if state in (NM.DeviceState.UNMANAGED, NM.DeviceState.UNAVAILABLE):
@@ -1011,35 +1076,42 @@ class SmolWifiManagerWindow(Adw.ApplicationWindow):
                                         NM.DeviceState.UNAVAILABLE: "unavailable"
                                     }
                                     state_name = state_names.get(state, "unknown")
-                                    self.status_label.set_text(f"Connection to {ssid_str} failed ({state_name})")
+                                    msg = f"Connection to {ssid_str} failed ({state_name})"
+                                    self.status_label.set_text(msg)
                                     self._enable_refresh()
                                     return False  # Don't repeat
                                 # Unknown state - wait a bit more before giving up
                                 if check_count[0] < 5:
                                     # Give it a few more tries for unknown states
-                                    GLib.timeout_add(500, check_and_refresh)  # Schedule next check
+                                    GLib.timeout_add(500, check_and_refresh)
                                     return False  # Don't repeat this call
                                 # After several attempts, treat as failed
-                                self.status_label.set_text(f"Connection to {ssid_str} failed (state: {state})")
+                                msg = f"Connection to {ssid_str} failed (state: {state})"
+                                self.status_label.set_text(msg)
                                 self._enable_refresh()
                                 return False  # Don't repeat
                             # No device, just refresh after delay
                             self.status_label.set_text(f"Connected to {ssid_str}")
                             self._refresh_after_connect()
                             return False  # Don't repeat
-                        
+
                         # Start checking connection state after a longer delay (2 seconds)
                         # Connection might take a moment to start
                         GLib.timeout_add_seconds(2, check_and_refresh)
                     else:
                         # Connection result is None/False - connection failed to start
-                        print(f"[CONNECT DEBUG] Connection failed to start - connection_result is {connection_result}")
-                        print(f"[CONNECT DEBUG] Connection result type: {type(connection_result)}")
+                        msg = f"[CONNECT DEBUG] Connection failed to start: {connection_result}"
+                        print(msg)
+                        result_type = type(connection_result)
+                        msg = "[CONNECT DEBUG] Connection result type"
+                        print(f"{msg}: {result_type}")
                         if self.wifi_device:
                             device_state = self.wifi_device.get_state()
-                            print(f"[CONNECT DEBUG] Device state when connection failed: {device_state}")
+                            msg = "[CONNECT DEBUG] Device state when connection failed"
+                            print(f"{msg}: {device_state}")
                             active_conn = self.wifi_device.get_active_connection()
-                            print(f"[CONNECT DEBUG] Active connection when failed: {active_conn}")
+                            msg = "[CONNECT DEBUG] Active connection when failed"
+                            print(f"{msg}: {active_conn}")
                         # Check if there's an error in the result
                         if hasattr(result, 'get_error'):
                             try:
@@ -1048,7 +1120,8 @@ class SmolWifiManagerWindow(Adw.ApplicationWindow):
                                     print(f"[CONNECT DEBUG] Error from result: {error}")
                             except Exception:
                                 pass
-                        error_text = f"Failed to start connection to {ssid_str}. Password may be required."
+                        error_text = f"Failed to start connection to {ssid_str}."
+                        error_text += " Password may be required."
                         GLib.idle_add(self.status_label.set_text, error_text)
                         GLib.idle_add(self._enable_refresh)
                 except Exception as e:
@@ -1059,12 +1132,13 @@ class SmolWifiManagerWindow(Adw.ApplicationWindow):
                     if self.wifi_device:
                         try:
                             device_state = self.wifi_device.get_state()
-                            print(f"[CONNECT DEBUG] Device state during exception: {device_state}")
+                            msg = "[CONNECT DEBUG] Device state during exception"
+                            print(f"{msg}: {device_state}")
                         except Exception:
                             pass
                     GLib.idle_add(self.status_label.set_text, f"Connection error: {error_msg}")
                     GLib.idle_add(self._enable_refresh)
-            
+
             # Connect asynchronously
             # Note: This must be called from main thread, so we use GLib.idle_add
             def do_connect():
@@ -1073,12 +1147,15 @@ class SmolWifiManagerWindow(Adw.ApplicationWindow):
                     conn_type = 'existing' if not is_new_connection else 'new'
                     print(f"[CONNECT DEBUG] Using {conn_type} connection")
                     print(f"[CONNECT DEBUG] Connection object: {connection}")
-                    conn_id = connection.get_id() if hasattr(connection, 'get_id') else 'N/A'
+                    has_get_id = hasattr(connection, 'get_id')
+                    conn_id = connection.get_id() if has_get_id else 'N/A'
                     print(f"[CONNECT DEBUG] Connection ID: {conn_id}")
                     print(f"[CONNECT DEBUG] WiFi device: {self.wifi_device}")
                     if self.wifi_device:
-                        print(f"[CONNECT DEBUG] Device state before connect: {self.wifi_device.get_state()}")
-                        print(f"[CONNECT DEBUG] Device type: {self.wifi_device.get_device_type()}")
+                        state = self.wifi_device.get_state()
+                        print(f"[CONNECT DEBUG] Device state before connect: {state}")
+                        device_type = self.wifi_device.get_device_type()
+                        print(f"[CONNECT DEBUG] Device type: {device_type}")
                     self.status_label.set_text(f"Connecting to {ssid_str}...")
 
                     # For existing connections, we can use activate_connection_async
@@ -1124,7 +1201,7 @@ class SmolWifiManagerWindow(Adw.ApplicationWindow):
             print(traceback.format_exc())
             GLib.idle_add(self.status_label.set_text, error_msg)
             GLib.idle_add(self._enable_refresh)
-    
+
     def _refresh_after_connect(self):
         """Refresh the network list after connect to update UI"""
         # Reload the list using manual refresh
@@ -1137,7 +1214,7 @@ class SmolWifiManagerWindow(Adw.ApplicationWindow):
         if not self.wifi_device:
             self.status_label.set_text("Error: WiFi device not available")
             return
-        
+
         self.status_label.set_text("Disconnecting...")
         button.set_sensitive(False)
 
@@ -1145,13 +1222,13 @@ class SmolWifiManagerWindow(Adw.ApplicationWindow):
         thread = threading.Thread(target=self._disconnect_thread)
         thread.daemon = True
         thread.start()
-    
+
     def _disconnect_thread(self):
         """Thread function to disconnect from network"""
         try:
             # Get active connection from the WiFi device
             active_connection = self.wifi_device.get_active_connection()
-            
+
             if not active_connection:
                 # Try getting from client instead
                 active_connections = self.client.get_active_connections()
@@ -1210,7 +1287,7 @@ class SmolWifiManagerWindow(Adw.ApplicationWindow):
         if self.refresh_btn.get_sensitive():
             self.scan_networks(is_manual=True)
         return False  # Don't repeat
-    
+
     def _enable_refresh(self):
         """Re-enable refresh button"""
         # Use GLib.idle_add to ensure this happens in the main thread
@@ -1257,4 +1334,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
